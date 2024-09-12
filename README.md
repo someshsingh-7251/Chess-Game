@@ -54,5 +54,6 @@ This chess game was inspired by the classic board game and various online implem
 
     This README provides a clear overview of your project, from features and installation to contributing and licensing. Customize the content as needed, such as adding a link to a screenshot or providing a specific URL for the repository.
 
-## Note:
-Feel Free to Contact at Instagram: https://www.instagram.com/officialsomeshchinkusingh?igsh=MW1vdTZwbDdmMTZxbw==
+---
+
+*Note: Feel Free to Contact at Instagram: https://www.instagram.com/officialsomeshchinkusingh?igsh=MW1vdTZwbDdmMTZxbw==*

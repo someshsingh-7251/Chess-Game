@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chess — Single File</title>
+  <style>
+    /* ====== Basic board styling ====== */
+    :root{
+      --light:#f0d9b5;
+      --dark:#b58863;
+      --accent:#ffd54a;
+      --board-size: min(90vmin, 720px);
+      --square-size: calc(var(--board-size) / 8);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center;background:#0f1724;color:#e6eef8}
+    .container{display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start}
+    .panel{width:260px;padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);box-shadow:0 6px 20px rgba(3,6,23,0.6)}
+
+    h1{font-size:18px;margin:0 0 8px}
+    p{margin:6px 0;color:#bcd0ea}
+
+    .board-wrap{width:var(--board-size);height:var(--board-size);display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:12px;overflow:clip;box-shadow:0 10px 40px rgba(2,6,23,0.7)}
+    .square{width:var(--square-size);height:var(--square-size);display:flex;align-items:center;justify-content:center;font-size:28px;user-select:none;cursor:pointer;position:relative}
+    .square.light{background:var(--light)}
+    .square.dark{background:var(--dark)}
+    .square.highlight{outline:4px solid rgba(255,213,74,0.12);box-shadow:inset 0 0 0 3px rgba(255,213,74,0.06)}
+    .square.move-target::after{content:'';position:absolute;width:14px;height:14px;border-radius:50%;background:rgba(10,10,10,0.35)}
+    .square.capture{background:linear-gradient(0deg, rgba(255,0,0,0.12), transparent)}
+
+    .coords{position:absolute;left:6px;bottom:6px;font-size:10px;color:rgba(0,0,0,0.45)}
+
+    .pieces{font-size:34px}
+
+    .controls{display:flex;flex-direction:column;gap:8px}
+    .btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.03);padding:8px 10px;border-radius:8px;color:#e6eef8;cursor:pointer}
+
+    .log{height:320px;overflow:auto;padding:8px;background:rgba(255,255,255,0.02);border-radius:8px}
+    .move{padding:6px 4px;border-bottom:1px dashed rgba(255,255,255,0.02);font-size:13px}
+
+    footer{grid-column:1/-1;margin-top:6px;color:#8da6d6;font-size:12px}
+
+    /* responsive */
+    @media (max-width:900px){
+      .container{grid-template-columns:1fr;align-items:center}
+      .panel{width:100%}
+      .board-wrap{justify-self:center}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Chess — Single-file</h1>
+      <p>Two-player local chess. Click a piece to see legal moves, click a target to move. This single file includes HTML, CSS and JavaScript.</p>
+      <div class="controls">
+        <button id="newBtn" class="btn">New Game</button>
+        <button id="flipBtn" class="btn">Flip Board</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="undoBtn" class="btn">Undo</button>
+          <button id="redoBtn" class="btn">Redo</button>
+        </div>
+        <div style="margin-top:8px">
+          <strong>Turn:</strong> <span id="turnIndicator">White</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div id="board" class="board-wrap"></div>
+      <div style="display:flex;gap:12px;margin-top:12px">
+        <div class="panel" style="flex:1">
+          <h1>Move Log</h1>
+          <div id="log" class="log"></div>
+        </div>
+        <div class="panel" style="width:220px">
+          <h1>Game Info</h1>
+          <p id="status">Status: Playing</p>
+          <p>Note: This is a compact implementation with common move rules (no en-passant/castling promotions simplified).</p>
+        </div>
+      </div>
+      <footer>Single-file Chess — created for easy sharing</footer>
+    </div>
+  </div>
+
+<script>
+// ======= Minimal chess engine for move generation (no check/checkmate detection) =======
+// Piece notation: uppercase = White, lowercase = Black
+// Board is 8x8 with indices 0..7 rows (rank 8 to 1) and files a..h left to right when white at bottom
+
+const PIECES = {
+  'r': '♜', 'n':'♞','b':'♝','q':'♛','k':'♚','p':'♟',
+  'R':'♖','N':'♘','B':'♗','Q':'♕','K':'♔','P':'♙'
+}
+
+let boardEl = document.getElementById('board');
+let logEl = document.getElementById('log');
+let turnIndicator = document.getElementById('turnIndicator');
+let statusEl = document.getElementById('status');
+
+let state = {
+  board: [],
+  whiteToMove: true,
+  selected: null,
+  highlights: [],
+  moveHistory: [],
+  undone: [],
+  flipped:false
+};
+
+function newGame(){
+  // standard starting position
+  const start = [
+    ['r','n','b','q','k','b','n','r'],
+    ['p','p','p','p','p','p','p','p'],
+    ['','','','','','','',''],
+    ['','','','','','','',''],
+    ['','','','','','','',''],
+    ['','','','','','','',''],
+    ['P','P','P','P','P','P','P','P'],
+    ['R','N','B','Q','K','B','N','R']
+  ];
+  state.board = start.map(r=>r.slice());
+  state.whiteToMove = true;
+  state.selected = null; state.highlights = [];
+  state.moveHistory = []; state.undone = [];
+  state.flipped = false;
+  render();
+  logEl.innerHTML = '';
+  statusEl.textContent = 'Status: Playing';
+}
+
+function coordToSquare(r,c){
+  // r 0..7 top to bottom, c 0..7 left to right
+  return 'abcdefgh'[c] + (8 - r);
+}
+
+function inBounds(r,c){return r>=0 && r<8 && c>=0 && c<8}
+
+function sameColor(a,b){
+  if(!a||!b) return false;
+  const isUpper = (x)=> x === x.toUpperCase();
+  return isUpper(a) === isUpper(b);
+}
+
+function generateMovesFor(r,c){
+  const p = state.board[r][c];
+  if(!p) return [];
+  const white = p === p.toUpperCase();
+  const moves = [];
+  const dir = white ? -1 : 1;
+
+  switch(p.toLowerCase()){
+    case 'p':
+      // forward
+      if(inBounds(r+dir,c) && !state.board[r+dir][c]) moves.push([r+dir,c]);
+      // double from starting rank
+      const startRank = white?6:1;
+      if(r===startRank && !state.board[r+dir][c] && !state.board[r+2*dir][c]) moves.push([r+2*dir,c]);
+      // captures
+      for(let dc of [-1,1]){
+        const nr=r+dir, nc=c+dc;
+        if(inBounds(nr,nc) && state.board[nr][nc] && !sameColor(state.board[nr][nc],p)) moves.push([nr,nc]);
+      }
+      break;
+    case 'n':
+      [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr,dc])=>{
+        const nr=r+dr,nc=c+dc; if(inBounds(nr,nc) && !sameColor(state.board[nr][nc],p)) moves.push([nr,nc]);
+      });
+      break;
+    case 'b':
+      for(let [dr,dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) for(let m=1;m<8;m++){const nr=r+dr*m,nc=c+dc*m; if(!inBounds(nr,nc)) break; if(!state.board[nr][nc]) {moves.push([nr,nc]); continue;} if(!sameColor(state.board[nr][nc],p)) moves.push([nr,nc]); break;}
+      break;
+    case 'r':
+      for(let [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]) for(let m=1;m<8;m++){const nr=r+dr*m,nc=c+dc*m; if(!inBounds(nr,nc)) break; if(!state.board[nr][nc]) {moves.push([nr,nc]); continue;} if(!sameColor(state.board[nr][nc],p)) moves.push([nr,nc]); break;}
+      break;
+    case 'q':
+      for(let [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) for(let m=1;m<8;m++){const nr=r+dr*m,nc=c+dc*m; if(!inBounds(nr,nc)) break; if(!state.board[nr][nc]) {moves.push([nr,nc]); continue;} if(!sameColor(state.board[nr][nc],p)) moves.push([nr,nc]); break;}
+      break;
+    case 'k':
+      for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){ if(dr===0 && dc===0) continue; const nr=r+dr,nc=c+dc; if(inBounds(nr,nc) && !sameColor(state.board[nr][nc],p)) moves.push([nr,nc]); }
+      break;
+  }
+  return moves;
+}
+
+function render(){
+  boardEl.innerHTML = '';
+  const order = state.flipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  const cols = state.flipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  for(let ri=0;ri<8;ri++){
+    const r = order[ri];
+    for(let ci=0;ci<8;ci++){
+      const c = cols[ci];
+      const square = document.createElement('div');
+      square.className = 'square ' + (((r+c)%2===0)?'light':'dark');
+      square.dataset.r = r; square.dataset.c = c;
+      const piece = state.board[r][c];
+      if(piece){
+        const span = document.createElement('div'); span.className='pieces'; span.textContent = PIECES[piece] || piece; square.appendChild(span);
+      }
+      // coords small
+      const coord = document.createElement('div'); coord.className='coords'; coord.textContent = coordToSquare(r,c); square.appendChild(coord);
+
+      // highlight if applicable
+      const key = r+','+c;
+      if(state.highlights.some(h=>h[0]===r && h[1]===c)){
+        square.classList.add('highlight');
+        // capture or move
+        const isCap = state.board[r][c] && state.selected && !sameColor(state.board[r][c], state.board[state.selected[0]][state.selected[1]]);
+        if(isCap) square.classList.add('capture'); else square.classList.add('move-target');
+      }
+
+      square.addEventListener('click', ()=>onSquareClick(r,c));
+      boardEl.appendChild(square);
+    }
+  }
+  turnIndicator.textContent = state.whiteToMove ? 'White' : 'Black';
+}
+
+function onSquareClick(r,c){
+  const p = state.board[r][c];
+  // if selecting own piece
+  if(state.selected){
+    // if clicked on same piece -> deselect
+    if(state.selected[0]===r && state.selected[1]===c){ state.selected=null; state.highlights=[]; render(); return; }
+    // if clicked on a highlighted move -> move
+    if(state.highlights.some(h=>h[0]===r && h[1]===c)){
+      makeMove(state.selected,[r,c]);
+      state.selected=null; state.highlights=[]; render(); return;
+    }
+  }
+  // select if there's a piece of the side to move
+  if(p && ((p===p.toUpperCase()) === state.whiteToMove)){
+    state.selected = [r,c];
+    state.highlights = generateMovesFor(r,c);
+    render();
+  }
+}
+
+function makeMove(from,to){
+  const [fr,fc] = from; const [tr,tc] = to;
+  const moving = state.board[fr][fc];
+  const captured = state.board[tr][tc];
+  // basic promotion: if pawn reaches last rank -> promote to queen
+  if(moving && moving.toLowerCase()==='p' && (tr===0 || tr===7)){
+    state.board[tr][tc] = state.whiteToMove ? 'Q' : 'q';
+  } else {
+    state.board[tr][tc] = moving;
+  }
+  state.board[fr][fc] = '';
+
+  // save history
+  const sv = {from, to, moving, captured};
+  state.moveHistory.push(sv);
+  state.undone = [];
+
+  // update log
+  const moveText = `${coordToSquare(fr,fc)} → ${coordToSquare(tr,tc)} ${captured? '(x)':''}`;
+  const el = document.createElement('div'); el.className='move'; el.textContent = moveText; logEl.appendChild(el); logEl.scrollTop = logEl.scrollHeight;
+
+  state.whiteToMove = !state.whiteToMove;
+}
+
+function undo(){
+  if(state.moveHistory.length===0) return;
+  const last = state.moveHistory.pop();
+  const {from,to,moving,captured} = last;
+  state.board[from[0]][from[1]] = moving;
+  state.board[to[0]][to[1]] = captured || '';
+  state.undone.push(last);
+  // remove last log
+  if(logEl.lastChild) logEl.removeChild(logEl.lastChild);
+  state.whiteToMove = !state.whiteToMove;
+  render();
+}
+function redo(){
+  if(state.undone.length===0) return;
+  const m = state.undone.pop();
+  state.board[m.to[0]][m.to[1]] = m.moving;
+  state.board[m.from[0]][m.from[1]] = '';
+  state.moveHistory.push(m);
+  const el = document.createElement('div'); el.className='move'; el.textContent = `${coordToSquare(m.from[0],m.from[1])} → ${coordToSquare(m.to[0],m.to[1])}`;
+  logEl.appendChild(el); logEl.scrollTop = logEl.scrollHeight;
+  state.whiteToMove = !state.whiteToMove;
+  render();
+}
+
+// UI hooks
+document.getElementById('newBtn').addEventListener('click', ()=>newGame());
+document.getElementById('flipBtn').addEventListener('click', ()=>{ state.flipped = !state.flipped; render(); });
+document.getElementById('undoBtn').addEventListener('click', ()=>undo());
+document.getElementById('redoBtn').addEventListener('click', ()=>redo());
+
+// start
+newGame();
+</script>
+</body>
+</html>
